@@ -230,8 +230,8 @@ alias flush="dscacheutil -flushcache && killall -HUP mDNSResponder"
 # Active Cursor
 alias activeCursor="curl -fsSL https://raw.githubusercontent.com/yeongpin/cursor-free-vip/main/scripts/install.sh -o install.sh && chmod +x install.sh && ./install.sh"
 
-# Beyond Compare reset
-alias bcreset="launchctl start com.rich1e.beyondcompare.reset"
+# Beyond Compare reset, $USER_NAME set rich1e in this file
+alias bcreset="launchctl start com.$USER_NAME.beyondcompare.reset"
 
 # =-=-=-=-=-=-=-=-=-= Plugins Begin =-=-=-=-=-=-=-=-=-=
 
@@ -260,8 +260,6 @@ source $HOMEBREW_PREFIX/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zs
 
 # forgit
 [ -f $HOMEBREW_PREFIX/share/forgit/forgit.plugin.zsh ] && source $HOMEBREW_PREFIX/share/forgit/forgit.plugin.zsh
-
-# =-=-=-=-=-=-=-=-=-= Plugins End =-=-=-=-=-=-=-=-=-=
 
 # =-=-=-=-=-=-=-=-=-= Other Configs =-=-=-=-=-=-=-=-=-=
 

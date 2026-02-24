@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+ "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>com.rich1e.beyondcompare.reset</string>
+
+    <key>ProgramArguments</key>
+    <array>
+      <string>/bin/bash</string>
+      <string>/Users/rich1e/reset-beyond-compare.sh</string>
+    </array>
+
+    <!-- 每天执行一次 -->
+    <key>StartInterval</key>
+    <integer>86400</integer>
+
+    <!-- 登录后立即执行一次（可选，但很实用） -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/beyondcompare-reset.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/beyondcompare-reset.err</string>
+  </dict>
+</plist>
