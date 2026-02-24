@@ -1,0 +1,27 @@
+**/.DS_Store
+**/.AppleDouble
+**/.LSOverride
+
+**/Thumbs.db
+**/ehthumbs.db
+
+**/*~
+**/#*#
+**/.TemporaryItems
+
+**/Library/Application Support/com.mitchellh.ghostty/*.tmp
+
+**/.vscode
+**/.idea
+**/.history
+
+**/node_modules
+**/package-lock.json
+**/pnpm-lock.yaml
+**/yarn.lock
+
+**/tmp
+**/temp
+
+**/*.cache
+
