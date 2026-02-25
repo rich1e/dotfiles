@@ -1,0 +1,35 @@
+# ========================
+# chezmoi 通用配置模板
+# ========================
+
+# 默认编辑器
+[edit]
+command = "code"
+args = ["--wait"]
+
+# 合并工具（VS Code）
+[merge]
+command = "code"
+# auto = true
+
+[merge.code]
+command = "code"
+args = ["--wait", "--merge", "{{`{{ .Destination }}`}}", "{{`{{ .Source }}`}}", "{{`{{ .Target }}`}}", "{{`{{ .Result }}`}}"]
+
+# diff 工具
+# https://github.com/twpayne/chezmoi/discussions/2424
+[diff]
+command = "code"
+# args = ["--wait", "--diff"]
+args = ["--wait", "--diff", "{{`{{ .Destination }}`}}", "{{`{{ .Target }}`}}"]
+
+# 按系统区分配置
+{{ if eq .chezmoi.os "darwin" }}
+[data]
+platform = "mac"
+{{ end }}
+
+{{ if eq .chezmoi.os "linux" }}
+[data]
+platform = "linux"
+{{ end }}
