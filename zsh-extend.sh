@@ -23,6 +23,12 @@ export EDITOR='code -w'
 # 1.4 系统路径
 export PATH="/usr/local/sbin:$PATH"
 
+# 1.5 GitHub 访问令牌（从 macOS Keychain 读取）
+export GITHUB_TOKEN="{{ keyring "github-token" "rich1e" }}"
+
+# 1.6 OpenAI API Key（从 macOS Keychain 读取）
+export OPENAI_API_KEY="{{ keyring "openai-api-key" "rich1e" }}"
+
 # ===================================================================================================
 # 2. 应用程序配置
 # ===================================================================================================
@@ -30,15 +36,7 @@ export PATH="/usr/local/sbin:$PATH"
 # 2.1 Homebrew 配置
 export HOMEBREW_NO_AUTO_UPDATE=1  # 禁用自动更新
 
-# 2.2 Claude Code 配置
-export CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1
-export DISABLE_NON_ESSENTIAL_MODEL_CALLS=1
-export CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1
-export MAX_THINKING_TOKENS=0
-export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
-export CLAUDE_CODE_DISABLE_COMMAND_INJECTION_CHECK=1
-
-# 2.3 代理配置
+# 2.2 代理配置
 export PROXY_LOCAL_PATH="127.0.0.1:7897"
 
 # ===================================================================================================
@@ -74,6 +72,9 @@ if [[ -d "$GOENV_ROOT/bin" ]]; then
   export PATH="$GOENV_ROOT/bin:$PATH"
   eval "$(goenv init -)"
 fi
+
+# 3.5 Created by `pipx` on 2026-06-26 03:41:06
+export PATH="$PATH:/Users/rich1e/.local/bin"
 
 # ===================================================================================================
 # 4. Android 开发环境配置
@@ -295,7 +296,7 @@ unProxy() {
 
 # 6.9 Tock 时间追踪信息（用于 Starship 等提示符）
 tock_info() {
-  tock current --format "{{.Project}}: {{.Duration}}" 2>/dev/null
+  tock current --format '{{`{{.Project}}: {{.Duration}}`}}' 2>/dev/null
 }
 
 # ===================================================================================================
@@ -353,7 +354,6 @@ alias ifactive="ifconfig | pcregrep -M -o '^[^\t:]+:([^\n]|\n\t)*status: active'
 alias flush="dscacheutil -flushcache && killall -HUP mDNSResponder"
 
 # 7.10 应用程序快捷方式
-alias activeCursor="curl -fsSL https://raw.githubusercontent.com/yeongpin/cursor-free-vip/main/scripts/install.sh -o install.sh && chmod +x install.sh && ./install.sh"
 alias bcreset="launchctl start com.$USER_NAME.beyondcompare.reset"
 
 # ===================================================================================================
