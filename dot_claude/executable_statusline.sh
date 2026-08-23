@@ -15,6 +15,15 @@ settings="$HOME/.claude/settings.json"
 
 minimax_api_key_value="${MINIMAX_API_KEY:-}"
 
+# If MINIMAX_API_KEY was injected by sourcing zsh-extend.sh but the file
+# wasn't rendered by chezmoi, the literal template `{{ keyring ... }}` ends
+# up in the env. That's not a real key — fall back to keychain instead of
+# sending a 126-byte template string as Authorization.
+if [ -n "$minimax_api_key_value" ] \
+  && printf '%s' "$minimax_api_key_value" | grep -q "{{"; then
+  minimax_api_key_value=""
+fi
+
 if [ -z "$minimax_api_key_value" ]; then
   # DO NOT `source $HOME/zsh-extend.sh` — it pollutes stdout of subsequent
   # commands (e.g. `security find-generic-password`) with status banners
