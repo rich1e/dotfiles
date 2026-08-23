@@ -4,7 +4,16 @@
 # ZSH 扩展配置文件
 # 作者: rich1e
 # 说明: 个人 Zsh 环境配置，包括环境变量、插件、别名、自定义函数等
+# 本文件由 ~/.zshrc source 加载，密钥占位符 {{ ... }} 由 chezmoi 渲染
 # ===================================================================================================
+
+# 防护：必须在 zsh 中执行，且作为 source 加载（非独立脚本）
+[[ -n "$ZSH_VERSION" ]] || { echo "Error: zsh-extend.sh 必须在 zsh 中加载"; return 1 2>/dev/null || exit 1; }
+
+# 安全选项
+setopt PIPE_FAIL              # 管道任一阶段失败即整体失败
+# 注意：不启用 NO_UNSET —— autojump/forgit 等插件依赖 BASH 模式下的未设置变量判断
+# 改用 ${VAR:-} 显式默认值作为防御写法
 
 # ===================================================================================================
 # 1. 基础环境变量配置
@@ -70,6 +79,12 @@ export MINIMAX_API_KEY="{{ keyring "minimax-api-key" "rich1e" }}"
 # 2.1 Homebrew 配置
 export HOMEBREW_NO_AUTO_UPDATE=1  # 禁用自动更新
 
+# 缓存 HOMEBREW_PREFIX，避免后续多处 brew --prefix 重复调用
+if [[ -z "$HOMEBREW_PREFIX" ]] && type brew &>/dev/null; then
+  HOMEBREW_PREFIX="$(brew --prefix)"
+  export HOMEBREW_PREFIX
+fi
+
 # 2.2 代理配置
 export PROXY_LOCAL_PATH="127.0.0.1:7897"
 
@@ -108,7 +123,7 @@ if [[ -d "$GOENV_ROOT/bin" ]]; then
 fi
 
 # 3.5 Created by `pipx` on 2026-06-26 03:41:06
-export PATH="$PATH:/Users/rich1e/.local/bin"
+export PATH="$PATH:$HOME/.local/bin"
 
 # 3.6 Google Cloud SDK
 export PATH=/opt/homebrew/share/google-cloud-sdk/bin:"$PATH"
@@ -168,23 +183,21 @@ if [[ -n "$ANDROID_HOME" ]]; then
 fi
 
 # 4.7 Android SDK 管理工具函数
-sdkmanagerFn() {
-  if [[ -n "$ANDROID_HOME" && -f "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]]; then
-    "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "$@"
+_android_sdk_tool() {
+  # 用法: _android_sdk_tool <relative_tool_path> <display_name> "$@"
+  local tool_rel="$1" name="$2"
+  shift 2
+  local tool_path="$ANDROID_HOME/$tool_rel"
+  if [[ -n "$ANDROID_HOME" && -f "$tool_path" ]]; then
+    "$tool_path" "$@"
   else
-    echo "❌ sdkmanager 未找到，请检查 ANDROID_HOME 配置"
+    echo "❌ $name 未找到，请检查 ANDROID_HOME 配置"
     return 1
   fi
 }
 
-avdmanagerFn() {
-  if [[ -n "$ANDROID_HOME" && -f "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" ]]; then
-    "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" "$@"
-  else
-    echo "❌ avdmanager 未找到，请检查 ANDROID_HOME 配置"
-    return 1
-  fi
-}
+sdkmanagerFn() { _android_sdk_tool "cmdline-tools/latest/bin/sdkmanager" "sdkmanager" "$@"; }
+avdmanagerFn() { _android_sdk_tool "cmdline-tools/latest/bin/avdmanager" "avdmanager" "$@"; }
 
 alias sdkmanager='sdkmanagerFn'
 alias avdmanager='avdmanagerFn'
@@ -242,15 +255,18 @@ export FZF_COMPLETION_TRIGGER="**"
 # 5.2 fzf 路径补全配置
 export FZF_COMPLETION_PATH_OPTS='--walker file,dir,hidden,follow --scheme=path'
 
+# 公共 preview 命令：目录用 eza 树、文件用 bat
+_fzf_preview_cmd='if [ -d {} ]; then eza --tree --level=2 --color=always --icons {}; else bat --style=numbers --color=always --line-range :500 {}; fi'
+
 # 5.3 fzf 补全界面配置
-export FZF_COMPLETION_OPTS='
+export FZF_COMPLETION_OPTS="
 --height 80%
 --layout reverse
 --border
 --select-1
 --exit-0
---preview "if [ -d {} ]; then eza --tree --level=2 --color=always --icons {}; else bat --style=numbers --color=always --line-range :500 {}; fi"
-'
+--preview '$_fzf_preview_cmd'
+"
 
 # 5.4 fzf 默认界面配置
 export FZF_DEFAULT_OPTS="
@@ -258,12 +274,12 @@ export FZF_DEFAULT_OPTS="
 --layout=reverse
 --border
 --preview-window=right:60%:wrap
---preview 'if [ -d {} ]; then eza --tree --level=2 --color=always --icons {}; else bat --style=numbers --color=always --line-range :500 {}; fi'
+--preview '$_fzf_preview_cmd'
 "
 
 # 5.5 fzf CTRL+T 快捷键配置
 export FZF_CTRL_T_OPTS="
---preview 'if [ -d {} ]; then eza --tree --level=2 --color=always --icons {}; else bat --style=numbers --color=always {}; fi'
+--preview '$_fzf_preview_cmd'
 "
 
 # ===================================================================================================
@@ -272,17 +288,18 @@ export FZF_CTRL_T_OPTS="
 
 # 6.1 文件搜索函数
 f() {
-  find . -iname "*$1*" ${@:2}
+  find . -iname "*${1:-}*" "${@:2}"
 }
 
 # 6.2 内容递归搜索函数
 r() {
-  grep "$1" ${@:2} -R .
+  command grep -R -- "${1:-}" "${@:2}" .
 }
 
-# 6.3 fzf 文件选择函数
+# 6.3 fzf 文件选择函数（输出到 /tmp，避免污染当前目录）
 ff() {
-  find * -type f | fzf > selected
+  find . -type f | fzf > "/tmp/ff_selected.$$"
+  echo "已选择文件已保存到 /tmp/ff_selected.$$"
 }
 
 # 6.4 ripgrep + fzf 交互式内容搜索（带预览和 vim 打开）
@@ -311,7 +328,8 @@ lg() {
   lazygit "$@"
   if [ -f "$LAZYGIT_NEW_DIR_FILE" ]; then
     cd "$(cat $LAZYGIT_NEW_DIR_FILE)"
-    rm -f "$LAZYGIT_NEW_DIR_FILE" > /dev/null
+    # 使用 command rm 绕过 trash wrapper，避免临时文件污染回收站
+    command rm -f "$LAZYGIT_NEW_DIR_FILE" > /dev/null
   fi
 }
 
@@ -321,13 +339,11 @@ setProxy() {
   export https_proxy="http://$PROXY_LOCAL_PATH"
   export http_proxy="http://$PROXY_LOCAL_PATH"
   export all_proxy="socks5://$PROXY_LOCAL_PATH"
-  echo "✅ 代理已开启"
+  echo "✅ 代理已开启: $PROXY_LOCAL_PATH"
 }
 
 unProxy() {
-  unset http_proxy
-  unset https_proxy
-  unset all_proxy
+  unset http_proxy https_proxy all_proxy no_proxy
   echo "✅ 代理已关闭"
 }
 
@@ -356,10 +372,23 @@ alias ~="cd ~"
 alias -- -="cd -"
 
 # 7.4 系统命令增强
-alias cls="clear"
-alias ext="exit"
-alias ssh="ssh -X"
-alias rm='trash'
+# （cls/ext 已删除：cls 与 Ctrl+L 重复，ext 极少使用）
+# ssh 改用函数：避免 alias 劫持（如 git+ssh 内部调用），同时配置保活
+ssh() { command ssh -o ServerAliveInterval=60 -o ServerAliveCountMax=3 "$@" }
+# rm 包装为 trash（第三方 trash-cli，软删除到 ~/.local/share/Trash，可恢复）
+# 用函数而非 alias，避免破坏脚本中的 rm 语义；保留 command rm 作为最后兜底
+rm() {
+  if [[ $# -eq 0 ]]; then
+    echo "用法: rm <file>..." >&2
+    return 1
+  fi
+  # 危险参数防护：拒绝 rm -rf / 或 rm -- 选项
+  if [[ "$1" == "-rf" || "$1" == "--" ]]; then
+    echo "❌ 已禁止直接调用 rm，请显式使用 'command rm' 或 'trash -F' 清空回收站" >&2
+    return 1
+  fi
+  trash "$@"
+}
 
 # 7.5 搜索增强
 alias grep='grep --color'
@@ -389,15 +418,17 @@ alias lr='eza -lR'
 # 7.9 网络工具
 alias ip="dig +short myip.opendns.com @resolver1.opendns.com"
 alias localip="ipconfig getifaddr en0"
-alias ips="ifconfig -a | grep -o 'inet6\? \(addr:\)\?\s\?\(\(\([0-9]\+\.\)\{3\}[0-9]\+\)\|[a-fA-F0-9:]\+\)' | awk '{ sub(/inet6? (addr:)? ?/, \"\"); print }'"
+alias ips="ifconfig -a | grep -o 'inet6\? \(addr:\)\?\s\?\(\(\([0-9]\+\.\)\{3\)[0-9]\+\)\|[a-fA-F0-9:]\+\)' | awk '{ sub(/inet6? (addr:)? ?/, \"\"); print }'"
 alias ifactive="ifconfig | pcregrep -M -o '^[^\t:]+:([^\n]|\n\t)*status: active'"
 alias flush="dscacheutil -flushcache && killall -HUP mDNSResponder"
 
 # 7.10 应用程序快捷方式
-alias bcreset="launchctl start com.$USER_NAME.beyondcompare.reset"
+alias bcompare-reset="launchctl start com.$USER_NAME.beyondcompare.reset"
+alias bcreset='bcompare-reset'  # 向后兼容旧名
 
 # ===================================================================================================
 # 8. Zsh 插件加载
+# 加载顺序：补全 → 功能插件 → 语法高亮（高亮必须最后加载）
 # ===================================================================================================
 
 # 8.1 zsh-completions（命令补全增强）
@@ -417,12 +448,12 @@ if [[ -f "$HOMEBREW_PREFIX/share/zsh-autosuggestions/zsh-autosuggestions.zsh" ]]
   source "$HOMEBREW_PREFIX/share/zsh-autosuggestions/zsh-autosuggestions.zsh"
 fi
 
-# 8.4 autojump（智能目录跳转）
+# 8.3 autojump（智能目录跳转）
 if [[ -f "$HOMEBREW_PREFIX/etc/profile.d/autojump.sh" ]]; then
   source "$HOMEBREW_PREFIX/etc/profile.d/autojump.sh"
 fi
 
-# 8.5 fzf（模糊搜索工具加载）
+# 8.4 fzf（模糊搜索工具加载）
 # 注意：必须在设置 FZF_* 环境变量之后加载
 if type brew &>/dev/null; then
   FZF_SHELL_DIR="$(brew --prefix)/opt/fzf/shell"
@@ -430,36 +461,40 @@ if type brew &>/dev/null; then
   [[ -f "$FZF_SHELL_DIR/key-bindings.zsh" ]] && source "$FZF_SHELL_DIR/key-bindings.zsh"
 fi
 
-# 8.6 forgit（git 操作增强）
+# 8.5 forgit（git 操作增强）
 if [[ -f "$HOMEBREW_PREFIX/share/forgit/forgit.plugin.zsh" ]]; then
   source "$HOMEBREW_PREFIX/share/forgit/forgit.plugin.zsh"
 fi
 
-# 8.7 thefuck（命令纠错）
+# 8.6 thefuck（命令纠错）
 if type thefuck &>/dev/null; then
   eval $(thefuck --alias)
 fi
 
-# 8.8 navi（交互式命令备忘单）
+# 8.7 navi（交互式命令备忘单）
 if type navi &>/dev/null; then
   eval "$(navi widget zsh)"
 fi
 
-# 8.9 Google Cloud SDK（gcloud 命令补全）
-source /opt/homebrew/share/google-cloud-sdk/completion.zsh.inc
-source /opt/homebrew/share/google-cloud-sdk/path.zsh.inc
+# 8.8 Google Cloud SDK（gcloud 命令补全）
+if [[ -d "$HOMEBREW_PREFIX/share/google-cloud-sdk" ]]; then
+  source "$HOMEBREW_PREFIX/share/google-cloud-sdk/completion.zsh.inc"
+  source "$HOMEBREW_PREFIX/share/google-cloud-sdk/path.zsh.inc"
+fi
 
-# 8.10 iTerm2 Shell Integration（增强终端功能）
+# 8.9 iTerm2 Shell Integration（增强终端功能）
 export ITERM_ENABLE_SHELL_INTEGRATION_WITH_TMUX=1
 
 if [[ -f ~/.iterm2_shell_integration.zsh ]]; then
   source ~/.iterm2_shell_integration.zsh
 fi
 
-# 8.11 zsh-autopair（自动括号补全）
-source $(brew --prefix)/share/zsh-autopair/autopair.zsh
+# 8.10 zsh-autopair（自动括号补全）
+if [[ -f "${HOMEBREW_PREFIX}/share/zsh-autopair/autopair.zsh" ]]; then
+  source "${HOMEBREW_PREFIX}/share/zsh-autopair/autopair.zsh"
+fi
 
-# 8.3 zsh-syntax-highlighting（语法高亮）
+# 8.11 zsh-syntax-highlighting（语法高亮）—— 必须最后加载
 if [[ -f "$HOMEBREW_PREFIX/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh" ]]; then
   source "$HOMEBREW_PREFIX/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
   ZSH_HIGHLIGHT_HIGHLIGHTERS+=(brackets pattern cursor)
@@ -470,17 +505,17 @@ fi
 # ===================================================================================================
 
 # 9.1 trash（安全删除工具）
-if [[ -d "/opt/homebrew/opt/trash/bin" ]]; then
-  export PATH="/opt/homebrew/opt/trash/bin:$PATH"
+if [[ -d "$HOMEBREW_PREFIX/opt/trash/bin" ]]; then
+  export PATH="$HOMEBREW_PREFIX/opt/trash/bin:$PATH"
 fi
 
 # 9.2 Git（使用 Homebrew 版本）
-if [[ -f "/opt/homebrew/bin/git" ]]; then
-  export PATH="/opt/homebrew/bin/git:$PATH"
+if [[ -f "$HOMEBREW_PREFIX/bin/git" ]]; then
+  export PATH="$HOMEBREW_PREFIX/bin/git:$PATH"
 fi
 
 # 9.3 web_search（自定义搜索引擎）
-ZSH_WEB_SEARCH_ENGINES=(
+export ZSH_WEB_SEARCH_ENGINES=(
   bi "https://search.bilibili.com/all?keyword="
   douban "https://search.douban.com/book/subject_search?search_text="
   reddit "https://www.reddit.com/search/?q="
@@ -534,6 +569,8 @@ done
 # 提供 i(/a)、i[/a]、i{/a}、i</a> 等 Vim 风格文本对象
 autoload -U select-bracketed
 zle -N select-bracketed
+# ${(s..)^:-'()[]{}<>bB'} 把 '()[]{}<>bB' 拆成单字符数组，再 ^ 转大写得 'bB' 也参与
+# 最终循环 i/( i/[ i/{ i/< i/b i/B 等 12 个 text object
 for m in visual viopp; do
 	for c in {a,i}${(s..)^:-'()[]{}<>bB'}; do
 	  bindkey -M $m $c select-bracketed
@@ -551,14 +588,21 @@ zstyle ':omz:update' frequency 7
 # 11.2 命令提示符初始化
 autoload -U promptinit && promptinit
 
-# 11.3 inshellisense（shell 提供 IDE 风格的实时补全）
-# [[ -f '/Users/rich1e/.local/share/inshellisense/init/zsh/init.zsh' ]] && source '/Users/rich1e/.local/share/inshellisense/init/zsh/init.zsh'
-
-# 11.4 Starship 提示符
+# 11.3 Starship 提示符
 if type starship &>/dev/null; then
   STARSHIP_CONFIG=${HOME}/.config/starship.toml
   eval "$(starship init zsh)"
 fi
+
+# 11.4 inshellisense（shell 提供 IDE 风格的实时补全，600+ CLI 规范）
+# 注意：inshellisense 官方要求必须放在配置最末尾，否则会被其他 init（如 starship）破坏
+# reload 守卫：inshellisense 是 shell wrapper 模式（source → 启动 is daemon → exit 接管）。
+# 已在 is daemon 内时（ISTERM 已设）重复 source 会破坏 daemon 状态，因此守卫跳过。
+# 如需重载 inshellisense 配置，请 exit 当前会话后重新进入终端。
+# 当前状态：临时禁用
+
+# _is_init="$HOME/.local/share/inshellisense/init/zsh/init.zsh"
+# [[ -z "${ISTERM}" && -f "$_is_init" ]] && source "$_is_init"
 
 # ===================================================================================================
 # 配置文件结束
