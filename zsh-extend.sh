@@ -23,11 +23,38 @@ export EDITOR='code -w'
 # 1.4 系统路径
 export PATH="/usr/local/sbin:$PATH"
 
-# 1.5 GitHub 访问令牌（从 macOS Keychain 读取）
+# 1.5 密钥访问（按需从 macOS Keychain 读取，避免常驻在环境变量中）
+getBase64Key() {
+  local key_name="$1"
+  local account_name="$2"
+  local raw
+  raw=$(security find-generic-password -w -s "$key_name" -a "$account_name" 2>/dev/null)
+  # 去除 go-keyring-base64: 前缀(若有)
+  raw="${raw#go-keyring-base64:}"
+  # 解码
+  echo -n "$raw" | base64 -d
+}
+
+openai_api_key() {
+  getBase64Key "openai-api-key" "rich1e"
+}
+
+github_token() {
+  getBase64Key "github-token" "rich1e"
+}
+
+stitch_api_key() {
+  getBase64Key "stitch-api-key" "rich1e"
+}
+
+# 1.6 GitHub 访问令牌（从 macOS Keychain 读取）
 export GITHUB_TOKEN="{{ keyring "github-token" "rich1e" }}"
 
-# 1.6 OpenAI API Key（从 macOS Keychain 读取）
+# 1.7 OpenAI API Key（从 macOS Keychain 读取）
 export OPENAI_API_KEY="{{ keyring "openai-api-key" "rich1e" }}"
+
+# 1.8 Stitch API Key（从 macOS Keychain 读取）
+export STITCH_API_KEY="{{ keyring "stitch-api-key" "rich1e" }}"
 
 # ===================================================================================================
 # 2. 应用程序配置
@@ -75,6 +102,9 @@ fi
 
 # 3.5 Created by `pipx` on 2026-06-26 03:41:06
 export PATH="$PATH:/Users/rich1e/.local/bin"
+
+# 3.6 Google Cloud SDK
+export PATH=/opt/homebrew/share/google-cloud-sdk/bin:"$PATH"
 
 # ===================================================================================================
 # 4. Android 开发环境配置
@@ -299,6 +329,9 @@ tock_info() {
   tock current --format '{{`{{.Project}}: {{.Duration}}`}}' 2>/dev/null
 }
 
+# obsidian-wiki terminal notification
+# source /Users/rich1e/.local/pipx/venvs/obsidian-wiki/lib/python3.14/site-packages/obsidian_wiki/_data/scripts/wiki-notify.sh
+
 # ===================================================================================================
 # 7. 别名配置
 # ===================================================================================================
@@ -377,11 +410,6 @@ if [[ -f "$HOMEBREW_PREFIX/share/zsh-autosuggestions/zsh-autosuggestions.zsh" ]]
   source "$HOMEBREW_PREFIX/share/zsh-autosuggestions/zsh-autosuggestions.zsh"
 fi
 
-# 8.3 zsh-syntax-highlighting（语法高亮）
-if [[ -f "$HOMEBREW_PREFIX/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh" ]]; then
-  source "$HOMEBREW_PREFIX/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
-fi
-
 # 8.4 autojump（智能目录跳转）
 if [[ -f "$HOMEBREW_PREFIX/etc/profile.d/autojump.sh" ]]; then
   source "$HOMEBREW_PREFIX/etc/profile.d/autojump.sh"
@@ -408,6 +436,26 @@ fi
 # 8.8 navi（交互式命令备忘单）
 if type navi &>/dev/null; then
   eval "$(navi widget zsh)"
+fi
+
+# 8.9 Google Cloud SDK（gcloud 命令补全）
+source /opt/homebrew/share/google-cloud-sdk/completion.zsh.inc
+source /opt/homebrew/share/google-cloud-sdk/path.zsh.inc
+
+# 8.10 iTerm2 Shell Integration（增强终端功能）
+export ITERM_ENABLE_SHELL_INTEGRATION_WITH_TMUX=1
+
+if [[ -f ~/.iterm2_shell_integration.zsh ]]; then
+  source ~/.iterm2_shell_integration.zsh
+fi
+
+# 8.11 zsh-autopair（自动括号补全）
+source $(brew --prefix)/share/zsh-autopair/autopair.zsh
+
+# 8.3 zsh-syntax-highlighting（语法高亮）
+if [[ -f "$HOMEBREW_PREFIX/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh" ]]; then
+  source "$HOMEBREW_PREFIX/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
+  ZSH_HIGHLIGHT_HIGHLIGHTERS+=(brackets pattern cursor)
 fi
 
 # ===================================================================================================
@@ -452,6 +500,39 @@ bindkey "\e\e" sudo-command-line
 # 10.2 Option+J 切换自动建议
 bindkey '∆' autosuggest-toggle
 
+# 10.3 Zsh surround（Vi 模式）
+# 提供类似 Vim surround.vim 的 cs / ds / ys 操作
+autoload -Uz surround
+zle -N delete-surround surround
+zle -N add-surround surround
+zle -N change-surround surround
+
+bindkey -a cs change-surround
+bindkey -a ds delete-surround
+bindkey -a ys add-surround
+bindkey -M visual S add-surround
+
+# 10.4 Zsh select-quoted（Vi text object）
+# 提供 i"/a"、i'/a'、i`/a` 等 Vim 风格文本对象
+autoload -Uz select-quoted
+zle -N select-quoted
+
+for m in visual viopp; do
+  for c in {a,i}{\',\",\`}; do
+    bindkey -M $m $c select-quoted
+  done
+done
+
+# 10.5 Zsh select-bracketed（Vi text object）
+# 提供 i(/a)、i[/a]、i{/a}、i</a> 等 Vim 风格文本对象
+autoload -U select-bracketed
+zle -N select-bracketed
+for m in visual viopp; do
+	for c in {a,i}${(s..)^:-'()[]{}<>bB'}; do
+	  bindkey -M $m $c select-bracketed
+	done
+done
+
 # ===================================================================================================
 # 11. Zsh 行为配置
 # ===================================================================================================
@@ -463,7 +544,10 @@ zstyle ':omz:update' frequency 7
 # 11.2 命令提示符初始化
 autoload -U promptinit && promptinit
 
-# 11.3 Starship 提示符
+# 11.3 inshellisense（shell 提供 IDE 风格的实时补全）
+# [[ -f '/Users/rich1e/.local/share/inshellisense/init/zsh/init.zsh' ]] && source '/Users/rich1e/.local/share/inshellisense/init/zsh/init.zsh'
+
+# 11.4 Starship 提示符
 if type starship &>/dev/null; then
   STARSHIP_CONFIG=${HOME}/.config/starship.toml
   eval "$(starship init zsh)"

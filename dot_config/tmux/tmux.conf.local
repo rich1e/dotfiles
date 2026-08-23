@@ -387,12 +387,12 @@ tmux_conf_urlscan_options="--compact --dedupe"
 set -g history-limit 1000000
 
 # start with mouse mode enabled
-#set -g mouse on
+set -g mouse on
 
 # force Vi mode
 #   really you should export VISUAL or EDITOR environment variable, see manual
-#set -g status-keys vi
-#set -g mode-keys vi
+set -g status-keys vi
+set -g mode-keys vi
 
 # replace C-b by C-a instead of using both prefixes
 # set -gu prefix2
@@ -407,12 +407,22 @@ set -g history-limit 1000000
 # display a message after toggling mouse support
 bind m run "cut -c3- '#{TMUX_CONF}' | sh -s _toggle_mouse" \; display 'mouse #{?#{mouse},on,off}'
 
-# move status line to top
+# find session
+bind C-l command-prompt -p find-session 'switch-client -t %%' #!important
 
-#set -g status-position top
+# move status line to bottom
+set -g status-position bottom
+
+# 退出 Vim 等全屏程序后恢复原屏幕
 set -g alternate-screen on
-set-hook -g default-terminal 'refresh-client -S'
-
+# 向程序转发焦点变化
+set -g focus-events on
+# 通过 OSC 52 同步系统剪贴板
+set -g set-clipboard on
+# 声明 tmux 内部终端能力
+set -g default-terminal "tmux-256color"
+# 强制声明外层终端支持 True Color
+set -ga terminal-overrides ",*:RGB"
 
 # -- tpm -----------------------------------------------------------------------
 
