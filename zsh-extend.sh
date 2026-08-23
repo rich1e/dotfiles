@@ -47,6 +47,10 @@ stitch_api_key() {
   getBase64Key "stitch-api-key" "rich1e"
 }
 
+minimax_api_key() {
+  getBase64Key "minimax-api-key" "rich1e"
+}
+
 # 1.6 GitHub 访问令牌（从 macOS Keychain 读取）
 export GITHUB_TOKEN="{{ keyring "github-token" "rich1e" }}"
 
@@ -55,6 +59,9 @@ export OPENAI_API_KEY="{{ keyring "openai-api-key" "rich1e" }}"
 
 # 1.8 Stitch API Key（从 macOS Keychain 读取）
 export STITCH_API_KEY="{{ keyring "stitch-api-key" "rich1e" }}"
+
+# 1.9 Minimax API Key（从 macOS Keychain 读取）
+export MINIMAX_API_KEY="{{ keyring "minimax-api-key" "rich1e" }}"
 
 # ===================================================================================================
 # 2. 应用程序配置

@@ -6,6 +6,40 @@ input=$(cat)
 settings="$HOME/.claude/settings.json"
 
 # ============================================================
+# Minimax Code Plan
+#
+# Source user shell extension so shell functions like
+# `minimax_api_key` (which reads from macOS keychain via
+# getBase64Key) are available in this non-interactive shell.
+# ============================================================
+
+minimax_api_key_value="${MINIMAX_API_KEY:-}"
+
+if [ -z "$minimax_api_key_value" ]; then
+  # DO NOT `source $HOME/zsh-extend.sh` — it pollutes stdout of subsequent
+  # commands (e.g. `security find-generic-password`) with status banners
+  # like "✅ Android SDK: ..." and inflates the captured "key" to 252
+  # bytes, breaking the Authorization header.
+  # The `getBase64Key` function is trivial — inline it here.
+  raw=$(security find-generic-password -w \
+    -s "minimax-api-key" -a "$USER" 2>/dev/null || true)
+
+  if [ -n "$raw" ]; then
+    raw="${raw#go-keyring-base64:}"
+    minimax_api_key_value=$(printf '%s' "$raw" | base64 -d 2>/dev/null || true)
+  fi
+fi
+
+# Strip any trailing whitespace — base64 -d on macOS may append \n
+minimax_api_key_value="${minimax_api_key_value%%[[:space:]]}"
+minimax_api_key_value="${minimax_api_key_value##[[:space:]]}"
+
+minimax_cache_dir="$HOME/.claude/cache/minimax"
+mkdir -p "$minimax_cache_dir" 2>/dev/null || true
+minimax_cache_file="$minimax_cache_dir/usage.json"
+minimax_cache_ttl=60  # seconds — statusline re-renders very often
+
+# ============================================================
 # Helpers
 # ============================================================
 
@@ -45,6 +79,29 @@ format_duration() {
   else
     printf '%dm' "$minutes"
   fi
+}
+
+# ============================================================
+# Minimax usage bar (10-char)
+# ============================================================
+
+minimax_bar() {
+  local pct="${1:-0}"
+  local bar_width=10
+  local filled=$((pct * bar_width / 100))
+
+  if [ "$filled" -gt "$bar_width" ]; then filled=$bar_width; fi
+  if [ "$filled" -lt 0 ]; then filled=0; fi
+  local empty=$((bar_width - filled))
+
+  local bar=""
+  if [ "$filled" -gt 0 ]; then
+    bar=$(printf '%*s' "$filled" '' | tr ' ' '█')
+  fi
+  if [ "$empty" -gt 0 ]; then
+    bar="${bar}$(printf '%*s' "$empty" '' | tr ' ' '░')"
+  fi
+  printf '%s' "$bar"
 }
 
 # ============================================================
@@ -453,4 +510,105 @@ fi
 if [ -n "$version_display" ]; then
   printf '%b' \
     " ${GRAY}│${RESET} ${DIM}${version_display}${RESET}"
+fi
+
+# ============================================================
+# LINE 3 — Minimax Code Plan
+#
+# API: POST https://www.minimaxi.com/v1/token_plan/remains
+# Returns model_remains[] with general/video entries.
+# We render the "general" entry (5h quota + weekly quota).
+# ============================================================
+
+minimax_payload=""
+
+if [ -n "$minimax_api_key_value" ]; then
+
+  # Use cache if fresh
+  if [ -f "$minimax_cache_file" ]; then
+    cache_age=$(( $(date +%s) - $(stat -f %m "$minimax_cache_file" 2>/dev/null || echo 0) ))
+    if [ "$cache_age" -lt "$minimax_cache_ttl" ]; then
+      minimax_payload=$(cat "$minimax_cache_file" 2>/dev/null)
+    fi
+  fi
+
+  # Refresh if cache stale or empty
+  if [ -z "$minimax_payload" ]; then
+    minimax_payload=$(curl -sS --max-time 5 \
+      --location 'https://www.minimaxi.com/v1/token_plan/remains' \
+      --header "Authorization: Bearer ${minimax_api_key_value}" \
+      --header 'Content-Type: application/json' \
+      2>/dev/null || true)
+
+    # Only cache successful responses (status_code 0). Don't poison the
+    # cache with 1004/401 errors — otherwise an outage sticks for 60s.
+    if [ -n "$minimax_payload" ] \
+      && [ "$(printf '%s' "$minimax_payload" | jq -r '.base_resp.status_code // 1' 2>/dev/null)" = "0" ]; then
+      printf '%s' "$minimax_payload" > "$minimax_cache_file" 2>/dev/null || true
+    fi
+  fi
+
+fi
+
+# Parse "general" entry
+minimax_general=$(printf '%s' "$minimax_payload" | jq -c \
+  '.model_remains[]? | select(.model_name == "general")' 2>/dev/null || true)
+
+if [ -n "$minimax_general" ] && [ "$minimax_general" != "null" ]; then
+
+  five_h_remaining=$(printf '%s' "$minimax_general" | jq -r '.current_interval_remaining_percent // empty')
+  five_h_reset_ms=$(printf '%s' "$minimax_general"  | jq -r '.remains_time // empty')
+  week_remaining=$(printf '%s' "$minimax_general"   | jq -r '.current_weekly_remaining_percent // empty')
+  week_reset_ms=$(printf '%s' "$minimax_general"    | jq -r '.weekly_remains_time // empty')
+
+  # remaining_percent is "remaining" → invert to "used"
+  five_h_used=$(( 100 - ${five_h_remaining:-0} ))
+  week_used=$(( 100 - ${week_remaining:-0} ))
+
+  if [ "$five_h_used" -lt 0 ]; then five_h_used=0; fi
+  if [ "$five_h_used" -gt 100 ]; then five_h_used=100; fi
+  if [ "$week_used" -lt 0 ]; then week_used=0; fi
+  if [ "$week_used" -gt 100 ]; then week_used=100; fi
+
+  bar=$(minimax_bar "$five_h_used")
+
+  if [ "$five_h_used" -ge 90 ]; then
+    five_h_color="$RED"
+  elif [ "$five_h_used" -ge 70 ]; then
+    five_h_color="$YELLOW"
+  else
+    five_h_color="$GREEN"
+  fi
+
+  if [ "$week_used" -ge 90 ]; then
+    week_color="$RED"
+  elif [ "$week_used" -ge 70 ]; then
+    week_color="$YELLOW"
+  else
+    week_color="$GREEN"
+  fi
+
+  reset_display=$(format_duration "${five_h_reset_ms:-0}")
+  week_reset_display=$(format_duration "${week_reset_ms:-0}")
+
+  printf '%b' \
+    "\n" \
+    "${BOLD}MINIMAX${RESET}" \
+    " ${GRAY}│${RESET} " \
+    "${five_h_color}${five_h_used}% ${bar}${RESET}" \
+    " ${GRAY}│${RESET} " \
+    "${week_color}${BOLD}WEEK ${week_used}%${RESET}" \
+    " ${GRAY}│${RESET} " \
+    "${CYAN}5h RESET: ${reset_display}${RESET}"
+
+  if [ -n "$week_reset_ms" ] && [ "$week_reset_ms" != "0" ]; then
+    printf '%b' \
+      " ${GRAY}│${RESET} " \
+      "${CYAN}WEEK RESET: ${week_reset_display}${RESET}"
+  fi
+
+else
+  printf '%b' \
+    "\n" \
+    "${DIM}MINIMAX │ unavailable${RESET}"
 fi
